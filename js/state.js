@@ -133,8 +133,10 @@ const PrestaData = {
             { id: 1, jour: 3, debut: '08:00', fin: '12:00', ordre: 1 },
             { id: 2, jour: 3, debut: '13:30', fin: '18:00', ordre: 2 },
           ] },
+        { id: 2, debut: '2027-07-09', fin: '2027-08-27', jours: [1,2,3,4,5],
+          creneaux: [ { id: 1, jour: null, debut: '08:00', fin: '18:00', ordre: 1 } ] },
       ],
-      joursFermes: [],
+      joursFermes: [ { id: 1, debut: '2027-08-15', fin: '2027-08-15', motif: 'Assomption' } ],
       sections: [
         { id: 1, nom: 'Les Petits (3-6 ans)', nbrPlace: 40, ageMin: 36, ageMax: 72, heureDebut: '08:00', heureFin: '18:00' },
         { id: 2, nom: 'Les Grands (6-11 ans)', nbrPlace: 40, ageMin: 72, ageMax: 132, heureDebut: '08:00', heureFin: '18:00' },

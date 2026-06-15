@@ -5,7 +5,7 @@
    ═══════════════════════════════════════════════════════════════ */
 const PrestationFichePage = (() => {
 
-  let _el = null, _id = null, _tab = 'proprietes', _editProps = false, _pDraft = null;
+  let _el = null, _id = null, _tab = 'proprietes', _editProps = false, _pDraft = null, _agPer = null;
 
   const TABS = [
     ['proprietes',    'Propriétés',    'tune'],
@@ -14,6 +14,11 @@ const PrestationFichePage = (() => {
     ['etablissements','Établissements','apartment'],
     ['tarifs',        'Tarifs',        'sell'],
   ];
+
+  // Agenda mensuel — année scolaire par défaut (utilisée pour l'aperçu en mode hérité)
+  const SCHOOL_YEAR = { debut: '2026-09-01', fin: '2027-07-06' };
+  const MOIS = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
+  const DOW  = ['Lu','Ma','Me','Je','Ve','Sa','Di'];
 
   /* ───────── entrée ───────── */
   function render(el, params) {
@@ -206,11 +211,80 @@ const PrestationFichePage = (() => {
     }).join('')}</div>`;
   }
 
+  /* — Agenda mensuel : grille des jours ouverts / fermés / fériés sur la période — */
+  function _agendaMonths(periodes, joursFermes) {
+    const ps = (periodes || []).filter(x => x.debut && x.fin);
+    if (!ps.length) {
+      return `<div class="empty-state" style="padding:24px"><span class="material-icons-outlined">calendar_month</span>
+        <div class="title">Aucune période à afficher</div>
+        <div class="desc">Ajoutez une période d'ouverture pour visualiser l'agenda des jours ouverts et fermés.</div></div>`;
+    }
+    const fermes = joursFermes || [];
+    const minStr = ps.reduce((a, x) => x.debut < a ? x.debut : a, ps[0].debut);
+    const maxStr = ps.reduce((a, x) => x.fin   > a ? x.fin   : a, ps[0].fin);
+    const [sy, sm] = minStr.split('-').map(Number);
+    const [ey, em] = maxStr.split('-').map(Number);
+
+    const months = []; let y = sy, m = sm, guard = 0;
+    while ((y < ey || (y === ey && m <= em)) && guard++ < 24) { months.push([y, m]); m++; if (m > 12) { m = 1; y++; } }
+
+    const pad2 = n => (n < 10 ? '0' : '') + n;
+    const isoWd = (yy, mm, dd) => { const w = new Date(yy, mm - 1, dd).getDay(); return w === 0 ? 7 : w; };
+    const statusOf = (iso, wd) => {
+      for (const f of fermes) { if (iso >= f.debut && iso <= (f.fin || f.debut)) return { cls: 'holiday', motif: f.motif || 'Fermeture' }; }
+      let within = false;
+      for (const per of ps) { if (iso >= per.debut && iso <= per.fin) { within = true; if ((per.jours || []).includes(wd)) return { cls: 'open' }; } }
+      return within ? { cls: 'closed' } : { cls: 'outside' };
+    };
+
+    const monthHtml = ([yy, mm]) => {
+      const nbDays = new Date(yy, mm, 0).getDate();
+      const first = isoWd(yy, mm, 1);
+      const cells = [];
+      for (let i = 1; i < first; i++) cells.push(`<div class="agenda-day blank"></div>`);
+      for (let d = 1; d <= nbDays; d++) {
+        const iso = `${yy}-${pad2(mm)}-${pad2(d)}`;
+        const st = statusOf(iso, isoWd(yy, mm, d));
+        const title = st.cls === 'holiday' ? Utils.esc(st.motif)
+                    : st.cls === 'open' ? 'Ouvert'
+                    : st.cls === 'closed' ? 'Fermé' : '';
+        cells.push(`<div class="agenda-day ${st.cls}"${title ? ` title="${title}"` : ''}>${d}</div>`);
+      }
+      return `<div class="agenda-month">
+        <div class="agenda-month-title">${MOIS[mm - 1]} ${yy}</div>
+        <div class="agenda-grid">${DOW.map(d => `<div class="agenda-dow">${d}</div>`).join('')}${cells.join('')}</div>
+      </div>`;
+    };
+
+    return `
+      <div class="agenda-legend">
+        <span class="agenda-legend-item"><span class="agenda-legend-swatch open"></span>Ouvert</span>
+        <span class="agenda-legend-item"><span class="agenda-legend-swatch closed"></span>Fermé</span>
+        <span class="agenda-legend-item"><span class="agenda-legend-swatch holiday"></span>Férié / fermeture</span>
+      </div>
+      <div class="agenda-months">${months.map(monthHtml).join('')}</div>`;
+  }
+
+  function _agendaBloc(periodes, joursFermes, caption, selectorHtml) {
+    return `
+      <div class="bloc">
+        <div class="bloc-header"><div class="bloc-icon"><span class="material-icons-outlined">calendar_month</span></div>
+          <div class="bloc-title">Agenda d'ouverture</div></div>
+        <div style="padding:14px 16px">
+          ${caption ? `<div class="hint" style="margin-bottom:12px">${caption}</div>` : ''}
+          ${selectorHtml || ''}
+          ${_agendaMonths(periodes, joursFermes)}
+        </div>
+      </div>`;
+  }
+
   function _panelCalendrier(p) {
     if (p.calendrierMode === 'HERITE') {
       const h = Data.calendrierHerite(p);
+      const pseudo = (h.jours && h.jours.length)
+        ? [{ debut: SCHOOL_YEAR.debut, fin: SCHOOL_YEAR.fin, jours: h.jours, creneaux: [] }] : [];
       return `
-        <div class="bloc">
+        <div class="bloc" style="margin-bottom:16px">
           <div class="bloc-header"><div class="bloc-icon"><span class="material-icons-outlined">event</span></div>
             <div class="bloc-title">Calendrier d'ouverture</div></div>
           <div style="padding:18px">
@@ -226,10 +300,21 @@ const PrestationFichePage = (() => {
           <div class="drawer-foot" style="border-top:1px solid var(--c-border)">
             <button class="btn btn-primary" onclick="PrestationFichePage.setCalMode('PERSO')"><span class="material-icons-outlined">tune</span>Personnaliser le calendrier</button>
           </div>
-        </div>`;
+        </div>
+        ${_agendaBloc(pseudo, p.joursFermes, `Aperçu sur l'année scolaire 2026–2027 (par défaut). Jours hérités de l'établissement principal ; personnalisez le calendrier pour définir des périodes propres et leurs jours fermés.`)}`;
     }
     // PERSO
     const periodes = p.periodes || [], fermes = p.joursFermes || [];
+    // Période affichée dans l'agenda (sélectionnable)
+    let agSel = periodes.find(x => x.id === _agPer);
+    if (!agSel) { agSel = periodes[0]; _agPer = agSel ? agSel.id : null; }
+    const agSelector = periodes.length > 1 ? `
+      <div class="flex items-center gap-2" style="margin-bottom:12px">
+        <label class="field-label" style="margin:0;white-space:nowrap">Période de validité</label>
+        <select class="input" style="max-width:280px" onchange="PrestationFichePage.selectAgendaPeriode(this.value)">
+          ${periodes.map(per => `<option value="${per.id}" ${per.id === _agPer ? 'selected' : ''}>Du ${Utils.formatDate(per.debut)} au ${Utils.formatDate(per.fin)}</option>`).join('')}
+        </select>
+      </div>` : '';
     return `
       <div class="banner info"><span class="material-icons-outlined">tune</span>
         Calendrier <b>personnalisé</b> — n'hérite plus de l'établissement.
@@ -246,7 +331,7 @@ const PrestationFichePage = (() => {
         </div>
       </div>
 
-      <div class="bloc">
+      <div class="bloc" style="margin-bottom:16px">
         <div class="bloc-header"><div class="bloc-icon error"><span class="material-icons-outlined">event_busy</span></div>
           <div class="bloc-title">Jours fermés (fériés &amp; fermetures)</div>
           <button class="btn btn-ghost btn-sm" onclick="PrestationFichePage.openFerme()"><span class="material-icons-outlined">add</span>Ajouter</button></div>
@@ -261,7 +346,9 @@ const PrestationFichePage = (() => {
             </div>`).join('') :
             `<div class="empty-state" style="padding:20px"><span class="material-icons-outlined">event_available</span><div class="desc">Aucun jour fermé déclaré.</div></div>`}
         </div>
-      </div>`;
+      </div>
+
+      ${_agendaBloc(agSel ? [agSel] : [], fermes, `Agenda des jours <b>ouverts</b> et <b>fermés</b> de la <b>période sélectionnée</b>. Les fériés / fermetures déclarés ci-dessus y apparaissent en rouge.`, agSelector)}`;
   }
 
   function _periodCard(per) {
@@ -283,6 +370,8 @@ const PrestationFichePage = (() => {
         </div>
       </div>`;
   }
+
+  function selectAgendaPeriode(id) { _agPer = +id; _renderPanel(); }
 
   function setCalMode(mode) {
     const p = Data.prestation(_id);
@@ -580,7 +669,7 @@ const PrestationFichePage = (() => {
   return {
     render, switchTab, doCreate,
     editProps, cancelProps, saveProps, toggleActif,
-    setCalMode, openPeriode, togglePeriodDay, creneauAdd, creneauRemove, creneauChange, savePeriode, deletePeriode,
+    setCalMode, selectAgendaPeriode, openPeriode, togglePeriodDay, creneauAdd, creneauRemove, creneauChange, savePeriode, deletePeriode,
     openFerme, saveFerme, deleteFerme,
     openSection, saveSection, deleteSection,
     openAttachEtab, doAttachEtab, detachEtab, setPrincipal,
